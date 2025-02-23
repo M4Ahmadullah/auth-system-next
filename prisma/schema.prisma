@@ -16,6 +16,16 @@ datasource db {
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
-  name      String?
-  password  String
+  username      String
+  passwordHash  String
+  phoneNumber String?
+  gender      String?
+  role        Role?     @relation(fields: [roleId], references: [id])
+  roleId      String?
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  users     User[]
 }
