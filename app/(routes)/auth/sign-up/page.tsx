@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { Eye, EyeOff, Mail, Phone, User, Lock } from "lucide-react";
-
 import { useRouter } from "next/navigation";
-import axios from "axios";
 import {
   Select,
   SelectContent,
@@ -17,10 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { VerifySignup } from "@/components/auth/verify-signup";
+import { toast } from "sonner";
 
 export default function SignUp() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     username: "",
@@ -56,20 +57,73 @@ export default function SignUp() {
     setError(null);
 
     try {
-      await axios.post("/api/auth/signup", formData);
+      console.log("Initiating signup with data:", formData);
 
-      // Successful registration
-      router.push("/auth/sign-in"); // Redirect to sign-in after successful registration
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || "Failed to create account");
-      } else {
-        setError("Something went wrong");
+      const response = await fetch("/api/auth/signup/initiate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+      console.log("Initiate response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to start signup process");
       }
+
+      setIsVerifying(true);
+      toast.success("Verification code sent to your email");
+    } catch (err) {
+      console.error("Signup initiation error:", err);
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleVerify = async (otpCode: string) => {
+    try {
+      console.log("Verifying OTP:", otpCode);
+
+      const response = await fetch("/api/auth/signup/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          otpCode,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Verify response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Verification failed");
+      }
+
+      toast.success("Account created successfully");
+      router.push("/auth/sign-in");
+    } catch (error) {
+      console.error("Verification error:", error);
+      throw error;
+    }
+  };
+
+  if (isVerifying) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <Background />
+        <GlassCard className="w-full max-w-md">
+          <VerifySignup
+            email={formData.email}
+            onVerify={handleVerify}
+            onBack={() => setIsVerifying(false)}
+          />
+        </GlassCard>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
@@ -193,7 +247,10 @@ export default function SignUp() {
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
+              onClick={(e) => {
+                e.preventDefault();
+                setShowPassword(!showPassword);
+              }}
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
             >
               {showPassword ? (

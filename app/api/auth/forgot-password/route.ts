@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import prisma from "@/lib/prisma";
 import { z } from "zod";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Create a new ratelimiter that allows 5 requests per 15 minutes
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, "15 m"),
+  analytics: true,
+});
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
@@ -11,6 +20,33 @@ const forgotPasswordSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // Get IP address for rate limiting
+    const ip = req.headers.get("x-forwarded-for") || "anonymous";
+
+    // Check rate limit
+    const { success, reset, remaining } = await ratelimit.limit(ip);
+
+    if (!success) {
+      const now = Date.now();
+      const retryAfter = Math.floor((reset - now) / 1000);
+
+      return NextResponse.json(
+        {
+          error: "Too many requests. Please try again later.",
+          retryAfter,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": retryAfter.toString(),
+            "X-RateLimit-Limit": "5",
+            "X-RateLimit-Remaining": remaining.toString(),
+            "X-RateLimit-Reset": reset.toString(),
+          },
+        }
+      );
+    }
+
     const body = await req.json();
     const { email } = forgotPasswordSchema.parse(body);
 
@@ -29,7 +65,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate a random 6-digit code
+    // Delete any existing reset codes for this user
+    await prisma.passwordReset.deleteMany({
+      where: { userId: user.id },
+    });
+
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -44,45 +84,22 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send email with better error handling
-    try {
-      const emailResponse = await resend.emails.send({
-        from: "onboarding@resend.dev",
-        to: email,
-        subject: "Password Reset Code",
-        html: `
-          <h1>Password Reset Code</h1>
-          <p>Your password reset code is: <strong>${resetCode}</strong></p>
-          <p>This code will expire in 10 minutes.</p>
-          <p>If you didn't request this reset, please ignore this email.</p>
-        `,
-      });
+    // Send email
+    await resend.emails.send({
+      from: "onboarding@resend.dev",
+      to: email,
+      subject: "Password Reset Code",
+      html: `
+        <h1>Password Reset</h1>
+        <p>Your password reset code is: <strong>${resetCode}</strong></p>
+        <p>This code will expire in 10 minutes.</p>
+      `,
+    });
 
-      console.log("Email send response:", emailResponse);
-
-      return NextResponse.json(
-        { message: "Reset code sent successfully" },
-        { status: 200 }
-      );
-    } catch (emailError) {
-      console.error("Failed to send email:", emailError);
-      // Delete the reset code since email failed
-      await prisma.passwordReset.delete({
-        where: {
-          id: (
-            await prisma.passwordReset.findFirst({
-              where: { userId: user.id, code: resetCode },
-            })
-          )?.id,
-        },
-      });
-
-      // Type assertion since we know emailError is from Resend API
-      const typedError = emailError as { message?: string };
-      throw new Error(
-        `Failed to send email: ${typedError.message || "Unknown error"}`
-      );
-    }
+    return NextResponse.json(
+      { message: "Password reset code sent" },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Forgot password error:", error);
     if (error instanceof z.ZodError) {
@@ -92,7 +109,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: (error as Error).message || "Failed to send reset code" },
+      { error: "Failed to send reset code" },
       { status: 500 }
     );
   }
