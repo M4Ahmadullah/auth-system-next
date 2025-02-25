@@ -77,7 +77,7 @@ export const Header = () => {
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center space-x-2">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600/80 to-pink-600/80 backdrop-blur-sm border border-white/10" />
-            <span className="text-white font-semibold text-xl">Logo</span>
+            <span className="text-white font-semibold text-xl">Authy</span>
           </Link>
 
           {/* Desktop Navigation */}
