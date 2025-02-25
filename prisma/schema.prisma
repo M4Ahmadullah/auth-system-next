@@ -13,19 +13,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
-  username      String
+  username  String
   passwordHash  String
   phoneNumber String?
   gender      String?
-  role        Role?     @relation(fields: [roleId], references: [id])
-  roleId      String?
+  role        UserRole @default(USER)
+  passwordResets PasswordReset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
-model Role {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  users     User[]
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([code])
 }
