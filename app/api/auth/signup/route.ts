@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
+// import bcrypt from "bcryptjs"; // Commented out hashing import
 import prisma from "@/lib/prisma";
 import { z } from "zod";
 
@@ -18,9 +18,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
     const parsedData = signUpSchema.parse(body);
-
     const { email, username, password, phoneNumber, gender } = parsedData;
 
     const existingUser = await prisma.user.findUnique({
@@ -34,13 +32,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    // Store original password instead of hashing
+    // const hashedPassword = await bcrypt.hash(password, 12);
 
     const newUser = await prisma.user.create({
       data: {
         email,
         username,
-        passwordHash: hashedPassword,
+        passwordHash: password, // Storing plain password
         phoneNumber,
         gender,
       },
